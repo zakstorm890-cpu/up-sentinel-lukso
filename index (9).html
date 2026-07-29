@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UP Sentinel — LUKSO Permission Checker</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- ethers.js v6 -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<!-- @erc725/erc725.js (used for LSP2/LSP6 permission-bitmap decoding helpers where available) -->
+<script src="https://unpkg.com/@erc725/erc725.js@0.27.1/build/main.umd.js"></script>
+
+<style>
+  :root{
+    --bg: #0a0712;
+    --bg-alt: #0f0b1a;
+    --panel: #15101f;
+    --panel-border: #241c38;
+    --pink: #ff2d78;
+    --pink-soft: #ff6fa8;
+    --purple: #a259ff;
+    --purple-deep: #6a3df5;
+    --text: #f3effc;
+    --text-dim: #a49bc0;
+    --text-faint: #6f6690;
+    --red: #ff4d5e;
+    --amber: #ffb238;
+    --green: #34e0a1;
+    --gradient-brand: linear-gradient(135deg, var(--pink) 0%, var(--purple) 60%, var(--purple-deep) 100%);
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body{
+    background-image:
+      radial-gradient(circle at 12% -10%, rgba(255,45,120,0.18), transparent 42%),
+      radial-gradient(circle at 90% 0%, rgba(162,89,255,0.16), transparent 45%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 42px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 42px);
+    background-attachment: fixed;
+    min-height:100vh;
+  }
+
+  .wrap{
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ---------- Header ---------- */
+  header.top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom: 56px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .brand{
+    display:flex;
+    align-items:center;
+    gap: 14px;
+  }
+
+  .logo-mark{
+    width: 42px; height:42px; flex-shrink:0;
+    filter: drop-shadow(0 0 14px rgba(255,45,120,0.45));
+  }
+
+  .brand-text .name{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.2px;
+    line-height:1.1;
+  }
+  .brand-text .tag{
+    font-size: 12px;
+    color: var(--text-faint);
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+
+  .net-pill{
+    display:flex; align-items:center; gap:8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--panel-border);
+    font-size: 12.5px;
+    color: var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+  }
+  .net-dot{
+    width:7px; height:7px; border-radius:50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-dot 2s infinite ease-in-out;
+  }
+  @keyframes pulse-dot{
+    0%,100%{ opacity:1; } 50%{ opacity:0.35; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    text-align:center;
+    margin-bottom: 40px;
+  }
+  .hero h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-size: clamp(30px, 4.4vw, 44px);
+    line-height: 1.12;
+    margin: 0 0 14px;
+    font-weight: 700;
+  }
+  .hero h1 .grad{
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p{
+    color: var(--text-dim);
+    font-size: 16px;
+    max-width: 560px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ---------- Search ---------- */
+  .search-card{
+    background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 10px;
+    display:flex;
+    gap: 10px;
+    margin: 32px auto 8px;
+    max-width: 640px;
+    position: relative;
+  }
+  .search-card::before{
+    content:'';
+    position:absolute; inset:-1px;
+    border-radius: var(--radius);
+    padding:1px;
+    background: linear-gradient(120deg, rgba(255,45,120,0.5), rgba(162,89,255,0.15), rgba(255,45,120,0.0));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events:none;
+    opacity:0.7;
+  }
+
+  #addressInput{
+    flex:1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 14.5px;
+    padding: 14px 16px;
+    min-width: 0;
+  }
+  #addressInput::placeholder{ color: var(--text-faint); }
+
+  .scan-btn{
+    border:none;
+    border-radius: var(--radius-sm);
+    padding: 0 26px;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    color: #10060f;
+    background: var(--gradient-brand);
+    cursor: pointer;
+    display:flex; align-items:center; gap:10px;
+    transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+    box-shadow: 0 6px 22px rgba(255,45,120,0.28);
+    white-space:nowrap;
+  }
+  .scan-btn:hover{ transform: translateY(-1px); box-shadow: 0 10px 26px rgba(255,45,120,0.38); }
+  .scan-btn:active{ transform: translateY(0); }
+  .scan-btn:disabled{ opacity:0.65; cursor:not-allowed; transform:none; }
+
+  .spinner{
+    width:16px; height:16px;
+    border-radius:50%;
+    border: 2.5px solid rgba(16,6,15,0.35);
+    border-top-color: #10060f;
+    animation: spin 0.7s linear infinite;
+    display:none;
+  }
+  .scan-btn.loading .spinner{ display:inline-block; }
+  .scan-btn.loading .btn-label{ display:none; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+
+  .hint-row{
+    text-align:center;
+    font-size: 12.5px;
+    color: var(--text-faint);
+    margin-top: 10px;
+  }
+  .hint-row button{
+    background:none; border:none; color: var(--pink-soft);
+    font-size: 12.5px; cursor:pointer; text-decoration: underline;
+    font-family: inherit; padding:0;
+  }
+
+  /* ---------- Scan progress (signature element) ---------- */
+  .scan-progress{
+    display:none;
+    max-width: 640px;
+    margin: 28px auto 0;
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 22px 22px;
+    position: relative;
+    overflow:hidden;
+  }
+  .scan-progress.active{ display:block; }
+  .scan-progress .sweep{
+    position:absolute; top:0; bottom:0; width: 140px;
+    background: linear-gradient(90deg, transparent, rgba(255,45,120,0.18), rgba(162,89,255,0.18), transparent);
+    animation: sweep 1.6s ease-in-out infinite;
+  }
+  @keyframes sweep{
+    0%{ left: -160px; } 100%{ left: 100%; }
+  }
+  .scan-progress .step-line{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    display:flex; align-items:center; gap:10px;
+    position: relative; z-index:1;
+  }
+  .scan-progress .step-line .chevron{ color: var(--pink-soft); }
+
+  /* ---------- Error toast ---------- */
+  .toast{
+    display:none;
+    max-width: 640px;
+    margin: 22px auto 0;
+    background: rgba(255,77,94,0.08);
+    border: 1px solid rgba(255,77,94,0.4);
+    color: #ffd7db;
+    padding: 14px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    align-items:flex-start;
+    gap: 10px;
+    line-height: 1.5;
+  }
+  .toast.show{ display:flex; animation: fadeIn .2s ease; }
+  .toast .icon{ font-size:16px; margin-top:1px; }
+  .toast strong{ color:#fff; }
+  @keyframes fadeIn{ from{ opacity:0; transform: translateY(-4px);} to{ opacity:1; transform:none; } }
+
+  /* ---------- Results ---------- */
+  #results{ display:none; margin-top: 44px; }
+  #results.show{ display:block; }
+
+  .resolved-card{
+    display:none;
+    background: linear-gradient(135deg, rgba(255,45,120,0.09), rgba(162,89,255,0.09));
+    border: 1px solid rgba(162,89,255,0.35);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .resolved-card.show{ display:flex; }
+  .resolved-card .rc-left{ min-width:0; }
+  .resolved-card .rc-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--pink-soft);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .resolved-card .rc-addr{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 15px;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .resolved-card .rc-note{
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .rc-copy{
+    flex-shrink:0;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font-family:'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background .15s ease;
+  }
+  .rc-copy:hover{ background: rgba(255,255,255,0.1); }
+
+  .summary-strip{
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+  .stat{
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    padding: 16px 18px;
+    text-align:center;
+  }
+  .stat .n{
+    font-family:'Space Grotesk', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+  }
+  .stat.total .n{ color: var(--text); }
+  .stat.high .n{ color: var(--red); }
+  .stat.safe .n{ color: var(--green); }
+  .stat .lbl{
+    font-size: 11.5px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
+
+  .section-label{
+    font-family:'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    margin: 30px 0 14px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-label.risk{ color: var(--red); }
+  .section-label.ok{ color: var(--green); }
+  .section-label::after{
+    content:''; flex:1; height:1px; background: var(--panel-border);
+  }
+
+  .card-grid{ display:flex; flex-direction:column; gap: 14px; }
+
+  .ctrl-card{
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    position: relative;
+    overflow:hidden;
+  }
+  .ctrl-card.high{
+    border-color: rgba(255,77,94,0.45);
+    background: linear-gradient(180deg, rgba(255,77,94,0.07), rgba(21,16,31,1) 60%);
+  }
+  .ctrl-card.safe{
+    border-color: rgba(52,224,161,0.3);
+    background: linear-gradient(180deg, rgba(52,224,161,0.05), rgba(21,16,31,1) 60%);
+  }
+
+  .ctrl-head{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    gap: 12px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .ctrl-addr{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .ctrl-addr .idx{
+    color: var(--text-faint);
+    font-size: 11.5px;
+    display:block;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge{
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink:0;
+  }
+  .badge.high{
+    background: rgba(255,77,94,0.15);
+    color: #ff8b96;
+    border: 1px solid rgba(255,77,94,0.4);
+  }
+  .badge.safe{
+    background: rgba(52,224,161,0.14);
+    color: #6bf0c2;
+    border: 1px solid rgba(52,224,161,0.35);
+  }
+
+  .risk-note{
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+  .risk-note b{ color:#ffb7bd; }
+  .ctrl-card.safe .risk-note b{ color: #8ff5d4; }
+
+  .perm-list{
+    display:flex; flex-wrap:wrap; gap: 8px;
+  }
+  .perm-chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+  }
+  .perm-chip.danger{
+    color: #ffaab2;
+    border-color: rgba(255,77,94,0.35);
+    background: rgba(255,77,94,0.08);
+  }
+
+  .empty-note{
+    text-align:center;
+    color: var(--text-faint);
+    font-size: 13.5px;
+    padding: 20px;
+    border: 1px dashed var(--panel-border);
+    border-radius: var(--radius-sm);
+  }
+
+  footer{
+    text-align:center;
+    margin-top: 60px;
+    color: var(--text-faint);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  footer a{ color: var(--pink-soft); text-decoration:none; }
+
+  @media (max-width: 560px){
+    .search-card{ flex-direction: column; }
+    .scan-btn{ padding: 14px; justify-content:center; }
+    .summary-strip{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <svg class="logo-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#ff2d78"/>
+            <stop offset="1" stop-color="#a259ff"/>
+          </linearGradient>
+        </defs>
+        <path d="M24 2 L44 24 L24 46 L4 24 Z" stroke="url(#lg)" stroke-width="3" fill="rgba(255,45,120,0.08)"/>
+        <path d="M24 14 L34 24 L24 34 L14 24 Z" fill="url(#lg)"/>
+      </svg>
+      <div class="brand-text">
+        <div class="name">UP Sentinel</div>
+        <div class="tag">LUKSO Permission Checker</div>
+      </div>
+    </div>
+    <div class="net-pill"><span class="net-dot"></span> LUKSO Mainnet · lukso.network</div>
+  </header>
+
+  <section class="hero">
+    <h1>Know exactly who can<br><span class="grad">touch your Universal Profile.</span></h1>
+    <p>Paste any LUKSO Universal Profile address to see every controller, dApp, and secondary key with access —
+       and instantly spot the ones that can move your funds or take over your account.</p>
+  </section>
+
+  <div class="search-card">
+    <input id="addressInput" type="text" placeholder="0x... your Universal Profile address" autocomplete="off" spellcheck="false" />
+    <button class="scan-btn" id="scanBtn">
+      <span class="spinner"></span>
+      <span class="btn-label">Scan Wallet</span>
+    </button>
+  </div>
+  <div class="hint-row">Don't have an address handy? Find one on <a href="https://universalprofile.cloud" target="_blank" rel="noopener" style="color:var(--pink-soft)">universalprofile.cloud</a></div>
+
+  <div class="scan-progress" id="scanProgress">
+    <div class="sweep"></div>
+    <div class="step-line"><span class="chevron">›</span> <span id="stepText">Connecting to LUKSO Mainnet…</span></div>
+  </div>
+
+  <div class="toast" id="errorToast">
+    <span class="icon">⚠️</span>
+    <div><strong id="toastTitle">Something went wrong.</strong><br><span id="toastMsg"></span></div>
+  </div>
+
+  <div id="results">
+    <div class="resolved-card" id="resolvedCard">
+      <div class="rc-left">
+        <div class="rc-label">✅ Resolved Universal Profile</div>
+        <div class="rc-addr" id="resolvedAddr"></div>
+        <div class="rc-note" id="resolvedNote"></div>
+      </div>
+      <button class="rc-copy" id="rcCopyBtn">Copy address</button>
+    </div>
+    <div class="summary-strip">
+      <div class="stat total"><div class="n" id="statTotal">0</div><div class="lbl">Controllers found</div></div>
+      <div class="stat high"><div class="n" id="statHigh">0</div><div class="lbl">High risk</div></div>
+      <div class="stat safe"><div class="n" id="statSafe">0</div><div class="lbl">Safe / limited</div></div>
+    </div>
+
+    <div id="highSection">
+      <div class="section-label risk">🔴 Critical / High risk</div>
+      <div class="card-grid" id="highGrid"></div>
+    </div>
+
+    <div id="safeSection">
+      <div class="section-label ok">🟢 Safe / limited access</div>
+      <div class="card-grid" id="safeGrid"></div>
+    </div>
+  </div>
+
+  <footer>
+    Reads on-chain data directly from the LSP6 Key Manager permission keys via ERC725Y storage.<br>
+    Nothing is signed or transacted — this tool is strictly read-only.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+
+  // ---------------- LSP6 permission bitmap ----------------
+  const PERMISSIONS = {
+    CHANGEOWNER:                      1n << 0n,
+    ADDCONTROLLER:                    1n << 1n,
+    EDITPERMISSIONS:                  1n << 2n,
+    ADDEXTENSIONS:                    1n << 3n,
+    CHANGEEXTENSIONS:                 1n << 4n,
+    ADDUNIVERSALRECEIVERDELEGATE:     1n << 5n,
+    CHANGEUNIVERSALRECEIVERDELEGATE:  1n << 6n,
+    REENTRANCY:                       1n << 7n,
+    SUPER_TRANSFERVALUE:              1n << 8n,
+    TRANSFERVALUE:                    1n << 9n,
+    SUPER_CALL:                       1n << 10n,
+    CALL:                             1n << 11n,
+    SUPER_STATICCALL:                 1n << 12n,
+    STATICCALL:                       1n << 13n,
+    SUPER_DELEGATECALL:               1n << 14n,
+    DELEGATECALL:                     1n << 15n,
+    DEPLOY:                           1n << 16n,
+    SUPER_SETDATA:                    1n << 17n,
+    SETDATA:                          1n << 18n,
+    ENCRYPT:                          1n << 19n,
+    DECRYPT:                         1n << 20n,
+    SIGN:                             1n << 21n,
+    EXECUTE_RELAY_CALL:               1n << 22n,
+  };
+
+  // Permissions that grant meaningful control over funds, ownership or the
+  // permission system itself.
+  const HIGH_RISK = new Set([
+    'CHANGEOWNER', 'EDITPERMISSIONS', 'ADDCONTROLLER',
+    'SUPER_TRANSFERVALUE', 'TRANSFERVALUE',
+    'SUPER_CALL', 'SUPER_DELEGATECALL', 'DELEGATECALL',
+    'SUPER_SETDATA'
+  ]);
+
+  const RISK_EXPLANATIONS = {
+    CHANGEOWNER: 'can transfer ownership of the entire profile away from you',
+    EDITPERMISSIONS: 'can rewrite anyone\'s permissions, including its own',
+    ADDCONTROLLER: 'can add brand new controller keys with any access level',
+    SUPER_TRANSFERVALUE: 'can move any amount of LYX/assets with no restrictions',
+    TRANSFERVALUE: 'can move LYX and tokens out of the profile',
+    SUPER_CALL: 'can call any contract on your behalf, unrestricted',
+    SUPER_DELEGATECALL: 'can execute arbitrary code as if it were the profile',
+    DELEGATECALL: 'can execute external code with full profile context',
+    SUPER_SETDATA: 'can overwrite any profile data key without limits'
+  };
+
+  function decodePermissions(hex){
+    if(!hex || hex === '0x') return [];
+    let value;
+    try{ value = BigInt(hex); } catch(e){ return []; }
+    const found = [];
+    for(const [name, bit] of Object.entries(PERMISSIONS)){
+      if((value & bit) === bit && bit !== 0n) found.push(name);
+    }
+    return found;
+  }
+
+  // ---------------- ERC725Y well-known keys ----------------
+  // Source: LSP-6-KeyManager spec (lukso-network/LIPs)
+  // AddressPermissions[] array length key (fixed, full keccak256 hash)
+  const ARRAY_KEY = '0xdf30dba06db6a30e65354d9a64c609861f089545ca58c6b4dbe31a5f338cb0e3';
+  // First 16 bytes of that same hash — used as the prefix for indexed array elements
+  const ARRAY_ELEMENT_PREFIX = '0xdf30dba06db6a30e65354d9a64c60986';
+  // AddressPermissions:Permissions:<address> — 12-byte prefix + 20-byte address
+  const PERMISSIONS_PREFIX = '0x4b80742de2bf82acb3630000';
+
+  function arrayIndexKey(index){
+    const idxHex = index.toString(16).padStart(32, '0');
+    return ARRAY_ELEMENT_PREFIX + idxHex;
+  }
+
+  function permissionKey(address){
+    return PERMISSIONS_PREFIX + address.toLowerCase().slice(2);
+  }
+
+  const ERC725Y_ABI = [
+    'function getDataBatch(bytes32[] dataKeys) view returns (bytes[] dataValues)',
+    'function getData(bytes32[] dataKeys) view returns (bytes[] dataValues)',
+    'function getData(bytes32 dataKey) view returns (bytes dataValue)'
+  ];
+
+  function errText(e){
+    return (e && (e.shortMessage || e.reason || e.message)) || String(e);
+  }
+
+  // Reads a batch of ERC725Y data keys, falling back across the three
+  // calling conventions real Universal Profiles may expose depending on
+  // when they were deployed. Throws a detailed, honest error if all fail.
+  async function readDataKeys(contract, keys){
+    const attempts = [];
+
+    try{
+      return await contract.getDataBatch(keys);
+    } catch(e){ attempts.push('getDataBatch(bytes32[]): ' + errText(e)); }
+
+    try{
+      return await contract['getData(bytes32[])'](keys);
+    } catch(e){ attempts.push('getData(bytes32[]): ' + errText(e)); }
+
+    try{
+      const out = [];
+      for(const k of keys){
+        out.push(await contract['getData(bytes32)'](k));
+      }
+      return out;
+    } catch(e){ attempts.push('getData(bytes32) loop: ' + errText(e)); }
+
+    const err = new Error('All ERC725Y read methods failed');
+    err.attempts = attempts;
+    throw err;
+  }
+
+  // Note: lukso.network is LUKSO's marketing website, not a JSON-RPC endpoint.
+  // The real public RPC lives at rpc.mainnet.lukso.network (chain ID 42).
+  const RPC_URL = 'https://rpc.mainnet.lukso.network';
+
+  // ---------------- DOM refs ----------------
+  const addressInput = document.getElementById('addressInput');
+  const scanBtn = document.getElementById('scanBtn');
+  const scanProgress = document.getElementById('scanProgress');
+  const stepText = document.getElementById('stepText');
+  const toast = document.getElementById('errorToast');
+  const toastTitle = document.getElementById('toastTitle');
+  const toastMsg = document.getElementById('toastMsg');
+  const results = document.getElementById('results');
+  const highGrid = document.getElementById('highGrid');
+  const safeGrid = document.getElementById('safeGrid');
+  const highSection = document.getElementById('highSection');
+  const safeSection = document.getElementById('safeSection');
+  const statTotal = document.getElementById('statTotal');
+  const statHigh = document.getElementById('statHigh');
+  const statSafe = document.getElementById('statSafe');
+
+  function showToast(title, msg){
+    toastTitle.textContent = title;
+    toastMsg.innerHTML = String(msg).split('\n').map(line => line.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))).join('<br>');
+    toast.classList.add('show');
+  }
+  function hideToast(){ toast.classList.remove('show'); }
+
+  function setStep(text){ stepText.textContent = text; }
+
+  function setLoading(isLoading){
+    scanBtn.disabled = isLoading;
+    scanBtn.classList.toggle('loading', isLoading);
+    scanProgress.classList.toggle('active', isLoading);
+  }
+
+  function shortAddr(a){
+    return a.slice(0,8) + '…' + a.slice(-6);
+  }
+
+  function renderResults(controllers, scanAddress, redirectNote){
+    highGrid.innerHTML = '';
+    safeGrid.innerHTML = '';
+
+    const resolvedCard = document.getElementById('resolvedCard');
+    const resolvedAddr = document.getElementById('resolvedAddr');
+    const resolvedNote = document.getElementById('resolvedNote');
+    if(scanAddress){
+      resolvedAddr.textContent = scanAddress;
+      resolvedNote.textContent = redirectNote
+        ? '↳ Auto-followed from the LSP6 Key Manager address you entered.'
+        : 'This is the exact profile account address these permissions belong to.';
+      resolvedCard.classList.add('show');
+    } else {
+      resolvedCard.classList.remove('show');
+    }
+
+    const high = controllers.filter(c => c.isHighRisk);
+    const safe = controllers.filter(c => !c.isHighRisk);
+
+    statTotal.textContent = controllers.length;
+    statHigh.textContent = high.length;
+    statSafe.textContent = safe.length;
+
+    highSection.style.display = high.length ? 'block' : 'none';
+    safeSection.style.display = safe.length ? 'block' : 'none';
+
+    if(high.length === 0 && safe.length === 0){
+      highSection.style.display = 'none';
+      safeSection.style.display = 'block';
+      safeGrid.innerHTML = '<div class="empty-note">No controller addresses with permissions were found on this profile.</div>';
+    }
+
+    high.forEach(c => highGrid.appendChild(buildCard(c, true)));
+    safe.forEach(c => safeGrid.appendChild(buildCard(c, false)));
+
+    results.classList.add('show');
+  }
+
+  function buildCard(c, isHigh){
+    const card = document.createElement('div');
+    card.className = 'ctrl-card ' + (isHigh ? 'high' : 'safe');
+
+    const riskyFound = c.permissions.filter(p => HIGH_RISK.has(p));
+    let note;
+    if(isHigh){
+      const reasons = riskyFound.slice(0,2).map(p => RISK_EXPLANATIONS[p] || p.toLowerCase());
+      note = `This address <b>${reasons.join('; and ')}</b>.`;
+    } else if (c.permissions.length === 0){
+      note = 'This address is listed as a controller but currently holds no active permissions.';
+    } else {
+      note = 'This address only has limited, low-impact access such as reading or restricted data-setting — it cannot move funds or change ownership.';
+    }
+
+    const chips = c.permissions.length
+      ? c.permissions.map(p => `<span class="perm-chip ${HIGH_RISK.has(p) ? 'danger' : ''}">${p}</span>`).join('')
+      : '<span class="perm-chip">NO PERMISSIONS SET</span>';
+
+    card.innerHTML = `
+      <div class="ctrl-head">
+        <div class="ctrl-addr"><span class="idx">Controller ${c.index + 1}</span>${c.address}</div>
+        <span class="badge ${isHigh ? 'high' : 'safe'}">${isHigh ? 'CRITICAL / HIGH RISK' : 'SAFE / LIMITED ACCESS'}</span>
+      </div>
+      <div class="risk-note">${note}</div>
+      <div class="perm-list">${chips}</div>
+    `;
+    return card;
+  }
+
+  async function scan(){
+    hideToast();
+    results.classList.remove('show');
+    document.getElementById('resolvedCard').classList.remove('show');
+
+    const raw = addressInput.value.trim();
+
+    if(!raw){
+      showToast('Enter an address first', 'Paste a LUKSO Universal Profile address into the field above to scan it.');
+      return;
+    }
+    if(typeof ethers === 'undefined'){
+      showToast('Library failed to load', 'ethers.js could not be loaded from the CDN. Check your internet connection and reload the page.');
+      return;
+    }
+    if(!ethers.isAddress(raw)){
+      showToast('That doesn\'t look like a valid address', 'Universal Profile addresses are 42-character hex strings starting with 0x. Double-check for typos or missing characters.');
+      return;
+    }
+
+    const address = ethers.getAddress(raw);
+    setLoading(true);
+
+    try{
+      setStep('Connecting to LUKSO Mainnet…');
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+      setStep('Checking address on-chain…');
+      const code = await provider.getCode(address);
+      if(code === '0x'){
+        throw { friendly: true, title: 'No contract at this address', msg: 'This address has no contract code on LUKSO Mainnet, so it can\'t be a Universal Profile. Make sure you copied the profile address, not a private key or a different chain\'s address.' };
+      }
+
+      let contract = new ethers.Contract(address, ERC725Y_ABI, provider);
+      let scanAddress = address;
+      let redirectNote = '';
+
+      // Interface IDs, confirmed against LUKSO's official current docs
+      // (docs.lukso.tech/contracts/interface-ids):
+      //   ERC725Y            0x629aa694
+      //   LSP0ERC725Account  0x24871b3d
+      //   LSP6KeyManager     0x23f34c62
+      setStep('Verifying this is a Universal Profile…');
+      const detector = new ethers.Contract(address, [
+        'function supportsInterface(bytes4 interfaceId) view returns (bool)',
+        'function owner() view returns (address)',
+        'function target() view returns (address)'
+      ], provider);
+
+      let isLSP0 = null, isERC725Y = null;
+      const detectAttempts = [];
+      try{ isLSP0 = await detector.supportsInterface('0x24871b3d'); }
+      catch(e){ detectAttempts.push('supportsInterface(LSP0): ' + errText(e)); }
+      try{ isERC725Y = await detector.supportsInterface('0x629aa694'); }
+      catch(e){ detectAttempts.push('supportsInterface(ERC725Y): ' + errText(e)); }
+
+      if(isLSP0 !== true && isERC725Y !== true){
+        // Not the profile account itself — check if it's actually the
+        // LSP6 Key Manager, and if so, auto-follow target() to the real account.
+        let isKeyManager = null;
+        try{ isKeyManager = await detector.supportsInterface('0x23f34c62'); }
+        catch(e){ detectAttempts.push('supportsInterface(LSP6): ' + errText(e)); }
+
+        if(isKeyManager === true){
+          try{
+            const targetAddr = await detector.target();
+            scanAddress = ethers.getAddress(targetAddr);
+            contract = new ethers.Contract(scanAddress, ERC725Y_ABI, provider);
+            redirectNote = `This address is an LSP6 Key Manager. Automatically following it to its linked Universal Profile account: ${scanAddress}`;
+          } catch(e){
+            throw {
+              friendly: true,
+              title: 'Found a Key Manager, but couldn\'t follow it',
+              msg: 'This address is an LSP6 Key Manager, but reading its linked account address failed. Try pasting the Universal Profile account address directly instead.'
+            };
+          }
+        } else {
+          let ownerHint = '';
+          try{
+            const ownerAddr = await detector.owner();
+            ownerHint = `\n\nThis contract's owner() is ${ownerAddr}.`;
+          } catch(e){ detectAttempts.push('owner(): ' + errText(e)); }
+
+          // Identify what it actually IS, if not a UP, for a clearer answer.
+          let assetHint = '';
+          try{
+            const isLSP7 = await detector.supportsInterface('0xb3c4928f');
+            const isLSP8 = await detector.supportsInterface('0x3a271706');
+            if(isLSP7) assetHint = '\n\nThis address is actually an LSP7 Digital Asset (a token) — not a profile.';
+            else if(isLSP8) assetHint = '\n\nThis address is actually an LSP8 Identifiable Digital Asset (an NFT collection) — not a profile.';
+          } catch(e){ /* inconclusive, skip */ }
+
+          // If every single detection call failed outright (not just
+          // returned false), this points at an RPC-level problem rather
+          // than a genuine "wrong contract type" — say so plainly.
+          const allFailed = detectAttempts.length >= 3;
+          throw {
+            friendly: true,
+            title: allFailed ? 'Could not verify this contract' : 'Not a Universal Profile account',
+            msg: allFailed
+              ? `Every on-chain check failed to even return a result (not just "false") — this usually means the RPC endpoint is rate-limiting or timing out rather than this being the wrong contract type. Wait a few seconds and try again.\n\nTechnical detail: ${detectAttempts.join(' | ')}`
+              : `This contract exists but doesn't implement the LSP0 Universal Profile interface.${assetHint}${ownerHint}\n\nMake sure you're copying the profile account address itself (visible in the URL when viewing the profile), not an asset, token, or other linked contract.`
+          };
+        }
+      }
+
+      if(redirectNote){ setStep(redirectNote); }
+
+      setStep('Reading AddressPermissions[] array…');
+      let arrayValue;
+      try{
+        [arrayValue] = await readDataKeys(contract, [ARRAY_KEY]);
+      } catch(e){
+        throw {
+          friendly: true,
+          title: 'Not a Universal Profile',
+          msg: `This contract doesn't expose ERC725Y storage the way a LUKSO Universal Profile does. Please double check the address and try again.\n\nTechnical detail: ${(e.attempts || [errText(e)]).join(' | ')}`
+        };
+      }
+
+      const length = (!arrayValue || arrayValue === '0x') ? 0 : Number(ethers.toBigInt(arrayValue));
+
+      if(length === 0){
+        renderResults([], scanAddress, redirectNote);
+        setLoading(false);
+        return;
+      }
+
+      setStep(`Fetching ${length} controller address${length === 1 ? '' : 'es'}…`);
+      const indexKeys = Array.from({length}, (_, i) => arrayIndexKey(i));
+      const indexValues = await readDataKeys(contract, indexKeys);
+
+      const addresses = indexValues.map(v => {
+        try{
+          const hex = ethers.dataSlice(v, 0, 20);
+          return ethers.getAddress(hex);
+        } catch(e){ return null; }
+      }).filter(Boolean);
+
+      setStep('Reading permission bitmaps for each controller…');
+      const permKeys = addresses.map(a => permissionKey(a));
+      const permValues = await readDataKeys(contract, permKeys);
+
+      setStep('Classifying risk levels…');
+      const controllers = addresses.map((addr, i) => {
+        const permissions = decodePermissions(permValues[i]);
+        const isHighRisk = permissions.some(p => HIGH_RISK.has(p));
+        return { address: addr, index: i, permissions, isHighRisk };
+      });
+
+      // High risk first, then by number of permissions descending
+      controllers.sort((a, b) => {
+        if(a.isHighRisk !== b.isHighRisk) return a.isHighRisk ? -1 : 1;
+        return b.permissions.length - a.permissions.length;
+      });
+
+      renderResults(controllers, scanAddress, redirectNote);
+
+    } catch(err){
+      console.error(err);
+      if(err && err.friendly){
+        showToast(err.title, err.msg);
+      } else if (err && (err.code === 'NETWORK_ERROR' || err.code === 'SERVER_ERROR' || err.code === 'TIMEOUT')){
+        showToast('Couldn\'t reach LUKSO Mainnet', 'The RPC endpoint didn\'t respond in time. Check your connection and try scanning again.');
+      } else {
+        const detail = (err && (err.shortMessage || err.reason || err.message)) || 'Unknown error';
+        showToast('Couldn\'t read this profile', `Verify the address is a valid LUKSO Universal Profile and try again. (Details: ${detail})`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  scanBtn.addEventListener('click', scan);
+  addressInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') scan();
+  });
+
+  document.getElementById('rcCopyBtn').addEventListener('click', async () => {
+    const addr = document.getElementById('resolvedAddr').textContent;
+    const btn = document.getElementById('rcCopyBtn');
+    try{
+      await navigator.clipboard.writeText(addr);
+      const original = btn.textContent;
+      btn.textContent = 'Copied ✓';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch(e){ /* clipboard API unavailable — silently ignore */ }
+  });
+
+})();
+</script>
+</body>
+</html>
